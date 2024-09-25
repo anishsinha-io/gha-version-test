@@ -14,25 +14,26 @@ jobs:
       - name: "Checkout"
         uses: "actions/checkout@v3"
 
+      # Cache Docker layers
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /home/runner/.cache/docker
+          key: ${{ runner.os }}-docker-${{ hashFiles('Dockerfile') }}
+          restore-keys: |
+            ${{ runner.os }}-docker-
+
+      # Set short commit SHA
       - name: Set short commit SHA
         id: set_commit_sha
         run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
 
-      - name: Install dependencies
-        run: sudo apt-get install -y pkg-config libssl-dev
-
-      - name: Run sccache
-        uses: mozilla-actions/sccache-action@v0.0.5
-
-      - name: Set SCCACHE environment variables
-        run: |
-          echo "SCCACHE_BUCKET=my-sccache-bucket" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=$(which sccache)" >> $GITHUB_ENV
-
-      - name: Build image with sccache
+      # Build image using cached layers
+      - name: Build Docker image
         run: |-
           docker build \
-            --build-arg RUSTC_WRAPPER=$(which sccache) \
+            --cache-from=type=local,src=/home/runner/.cache/docker \
+            --cache-to=type=local,dest=/home/runner/.cache/docker \
             -t scipio . &&
           docker tag scipio anish/scipio:${{ env.SHORT_SHA }}
         working-directory: .
