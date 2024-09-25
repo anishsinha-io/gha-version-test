@@ -1,4 +1,4 @@
-name: CI
+name: Version Bump
 
 on:
   push:
@@ -12,36 +12,44 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # Fetch full history for squashing
+          fetch-depth: 0 # Ensure the entire history is fetched
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-release
-        run: cargo install cargo-release
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install cargo-release using cargo-binstall
+        run: cargo binstall cargo-release --no-confirm
 
       - name: Auto bump version
         run: |
           git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
-          cargo release patch --execute --no-publish
+          cargo release --execute --no-publish patch
+
+      - name: Extract new version
+        id: get_version
+        run: |
+          NEW_VERSION=$(grep '^version' Cargo.toml | cut -d '"' -f2)
+          echo "version=$NEW_VERSION" >> $GITHUB_ENV  # Save the new version to the environment
+
+      - name: Get previous commit hash
+        id: get_previous_commit
+        run: echo "PREV_COMMIT=$(git rev-parse HEAD^)" >> $GITHUB_ENV # Get the previous commit's hash
 
       - name: Squash and push changes
         run: |
-          # Get the original commit message
           ORIGINAL_COMMIT_MSG=$(git log -1 --pretty=%B)
-
-          # Squash the previous commit (version bump)
-          git reset --soft HEAD~1
-
-          # Amend the commit with both the original commit message and the version bump
-          git commit --amend -m "${ORIGINAL_COMMIT_MSG}" -m "chore: bump version to $(grep '^version' Cargo.toml | cut -d '"' -f2)"
-
-          # Force push the changes
+          git reset --soft ${{ env.PREV_COMMIT }}  # Reset to the previous commit using the commit hash
+          git commit --amend -m "${ORIGINAL_COMMIT_MSG}" -m "chore: bump version to ${NEW_VERSION}"
           git push --force-with-lease origin main
           git push origin --tags
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ env.version }}
+          PREV_COMMIT: ${{ env.PREV_COMMIT }}
+
+      - name: Use the new version in another step
+        run: echo "The new version is ${{ env.version }}"
