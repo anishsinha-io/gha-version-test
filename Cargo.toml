@@ -5,8 +5,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.89"
+axum = "0.7.6"
+chrono = { version = "0.4.38", features = ["serde"] }
 reqwest = { version = "0.12.7", default-features = false, features = [
   "json",
   "rustls-tls",
 ] }
+serde = { version = "1.0.210", features = ["derive"] }
 tokio = { version = "1.40.0", features = ["full"] }

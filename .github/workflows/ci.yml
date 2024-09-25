@@ -6,37 +6,44 @@ on:
   pull_request:
     branches: ["main"]
 
+env:
+  PROJECT_ID: develop-for-good
+  REGION: us-central1
+  GAR_LOCATION: us-central1-docker.pkg.dev/develop-for-good/dfg
+
 jobs:
   build-push-artifact:
     runs-on: ubuntu-latest
-
     steps:
       - name: "Checkout"
-        uses: "actions/checkout@v3"
+        uses: "actions/checkout@v4"
 
-      # Cache Docker layers
-      - name: Cache Docker layers
-        uses: actions/cache@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - id: "auth"
+        uses: "google-github-actions/auth@v1"
         with:
-          path: /home/runner/.cache/docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('Dockerfile') }}
-          restore-keys: |
-            ${{ runner.os }}-docker-
+          credentials_json: "${{ secrets.SERVICE_ACCOUNT_KEY }}"
 
-      # Set short commit SHA
+      - name: "Set up Cloud SDK"
+        uses: "google-github-actions/setup-gcloud@v1"
+
+      - name: "Use gcloud CLI"
+        run: "gcloud info"
+      - name: "Docker auth"
+        run: |-
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
       - name: Set short commit SHA
         id: set_commit_sha
         run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
 
-      # Build image using cached layers
-      - name: Build Docker image
-        run: |-
-          docker build \
-            --cache-from=type=local,src=/home/runner/.cache/docker \
-            --cache-to=type=local,dest=/home/runner/.cache/docker \
-            -t scipio . &&
-          docker tag scipio anish/scipio:${{ env.SHORT_SHA }}
-        working-directory: .
-
-      - name: Finish
-        run: echo ${{ env.SHORT_SHA }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.GAR_LOCATION }}/simpleservice:latest,${{ env.GAR_LOCATION }}/simpleservice:${{ env.SHORT_SHA }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
