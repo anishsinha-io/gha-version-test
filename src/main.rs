@@ -1,5 +1,7 @@
 mod errors;
 use errors::AppError;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 
 use std::collections::HashMap;
 
@@ -30,7 +32,7 @@ async fn main() -> Result<()> {
                 (
                     StatusCode::OK,
                     Json(Data {
-                        msg: "Test service".to_string(),
+                        msg: "[NEW]: test service".to_string(),
                     }),
                 )
             }),
@@ -42,7 +44,7 @@ async fn main() -> Result<()> {
                 (
                     StatusCode::OK,
                     Json(Data {
-                        msg: format!("Current unix timestamp: {}", time),
+                        msg: format!("[NEW]: current unix timestamp: {}", time),
                     }),
                 )
             }),
@@ -53,9 +55,23 @@ async fn main() -> Result<()> {
                 (
                     StatusCode::CREATED,
                     Json(Data {
-                        msg: format!("Hello, {}", user.name),
+                        msg: format!("[NEW]: Hello, {}", user.name),
                     }),
                 )
+            }),
+        )
+        .route(
+            "/random-string",
+            routing::get(|| async {
+                let random_string = rand::thread_rng()
+                    .sample_iter(&Alphanumeric)
+                    .take(12)
+                    .map(char::from)
+                    .collect::<String>();
+
+                Json(Data {
+                    msg: format!("[NEW]: random string: {}", random_string),
+                })
             }),
         )
         .route("/ip", routing::get(get_ip));
@@ -74,7 +90,7 @@ async fn get_ip() -> Result<Response, AppError> {
     Ok((
         StatusCode::OK,
         Json(Data {
-            msg: format!("Your IP address is: {}", resp["origin"]),
+            msg: format!("[NEW]: your IP address is: {}", resp["origin"]),
         }),
     )
         .into_response())

@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = "1.0.89"
 axum = "0.7.6"
 chrono = { version = "0.4.38", features = ["serde"] }
+rand = "0.8.5"
 reqwest = { version = "0.12.7", default-features = false, features = [
   "json",
   "rustls-tls",
