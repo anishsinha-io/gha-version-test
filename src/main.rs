@@ -1,5 +1,5 @@
 mod errors;
-use async_nats::Message;
+use async_nats::{ConnectOptions, Message};
 use errors::AppError;
 use futures::StreamExt;
 use rand::distributions::Alphanumeric;
@@ -51,14 +51,19 @@ async fn main() -> Result<()> {
     let msgs = Arc::new(tokio::sync::Mutex::new(Vec::<Message>::new()));
 
     let (nats_token, nats_host) = (env::var("NATS_TOKEN"), env::var("NATS_HOST"));
-    let nats_url = match (nats_token, nats_host) {
-        (Ok(token), Ok(host)) => format!("{}@{}:4222", token, host),
-        (_, _) => "nats://localhost:4222".to_string(),
+
+    let client = match (nats_token, nats_host) {
+        (Ok(token), Ok(host)) => {
+            let url = format!("nats://{}:4222", host);
+            let opts = ConnectOptions::new().token(token);
+            println!("Connecting to NATS server at: {}", url);
+            async_nats::connect_with_options(&url, opts).await?
+        }
+        (_, _) => {
+            println!("Connecting to local NATS server");
+            async_nats::connect("nats://localhost:4222").await?
+        }
     };
-
-    println!("Connecting to NATS server at: {}", nats_url);
-
-    let client = async_nats::connect(&nats_url).await?;
 
     let msgs_copy = msgs.clone();
 
