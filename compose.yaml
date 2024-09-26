@@ -1,0 +1,30 @@
+services:
+  postgres:
+    hostname: simpleservice-db
+    container_name: simpleservice-postgres
+    image: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: "-A md5"
+    ports:
+      - "5432:5432"
+  pgadmin:
+    container_name: simpleservice-pgadmin
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: anish@developforgood.org
+      PGADMIN_DEFAULT_PASSWORD: anish
+    ports:
+      - "8889:80"
+    hostname: pgadmin
+    depends_on:
+      - postgres
+  nats:
+    container_name: simpleservice-nats
+    image: "nats:2.10.19"
+    ports:
+      - "8222:8222"
+      - "4222:4222"
+    hostname: nats-server

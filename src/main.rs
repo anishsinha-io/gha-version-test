@@ -1,12 +1,17 @@
 mod errors;
 use async_nats::{ConnectOptions, Message};
+use axum::extract::State;
 use errors::AppError;
 use futures::StreamExt;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
+use serde_json::json;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::prelude::FromRow;
+use sqlx::PgPool;
 use tokio::{select, task};
+use uuid::Uuid;
 
-use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
@@ -15,7 +20,7 @@ use axum::http::StatusCode;
 
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -24,8 +29,21 @@ struct Data {
 }
 
 #[derive(Serialize, Deserialize)]
-struct User {
+struct CreateUser {
     name: String,
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+struct User {
+    id: Uuid,
+    name: String,
+    created_at: DateTime<Utc>,
+    updated_at: Option<DateTime<Utc>>,
+}
+
+struct AppState {
+    db: PgPool,
+    mailbox: Arc<tokio::sync::Mutex<Vec<Message>>>,
 }
 
 async fn process_events(
@@ -48,7 +66,30 @@ async fn process_events(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let msgs = Arc::new(tokio::sync::Mutex::new(Vec::<Message>::new()));
+    if dotenvy::dotenv().is_ok() {
+        println!("Loaded .env file");
+    } else {
+        println!("No .env file found");
+    }
+    let msgs = tokio::sync::Mutex::new(Vec::<Message>::new());
+
+    let pg_url = env::var("DATABASE_URL")?;
+
+    let pool = PgPoolOptions::new()
+        .max_connections(100)
+        .connect(&pg_url)
+        .await?;
+
+    sqlx::migrate!().run(&pool).await?;
+    println!("Ran migrations");
+
+    let db = pool;
+    let mailbox = Arc::new(msgs);
+
+    let app_state = AppState {
+        db: db.clone(),
+        mailbox: mailbox.clone(),
+    };
 
     let (nats_token, nats_host) = (env::var("NATS_TOKEN"), env::var("NATS_HOST"));
 
@@ -65,10 +106,8 @@ async fn main() -> Result<()> {
         }
     };
 
-    let msgs_copy = msgs.clone();
-
     task::spawn(async move {
-        match process_events(client.clone(), "asdf.asdf", msgs.clone()).await {
+        match process_events(client.clone(), "asdf.asdf", mailbox.clone()).await {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("Error: {:?}", e);
@@ -101,17 +140,6 @@ async fn main() -> Result<()> {
             }),
         )
         .route(
-            "/hello",
-            routing::post(|Json(user): Json<User>| async move {
-                (
-                    StatusCode::CREATED,
-                    Json(Data {
-                        msg: format!("[NEW]: Hello, {}", user.name),
-                    }),
-                )
-            }),
-        )
-        .route(
             "/random-string",
             routing::get(|| async {
                 let random_string = rand::thread_rng()
@@ -126,10 +154,12 @@ async fn main() -> Result<()> {
             }),
         )
         .route("/ip", routing::get(get_ip))
+        .route("/users", routing::get(get_users))
+        .route("/users", routing::post(create_user))
         .route(
             "/events",
-            routing::get(|| async move {
-                let x = msgs_copy.clone().lock().await.clone();
+            routing::get(|State(state): State<Arc<AppState>>| async move {
+                let x = state.mailbox.clone().lock().await.clone();
 
                 (
                     StatusCode::OK,
@@ -138,7 +168,8 @@ async fn main() -> Result<()> {
                     }),
                 )
             }),
-        );
+        )
+        .with_state(Arc::new(app_state));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8181").await?;
     axum::serve(listener, app).await?;
@@ -147,15 +178,34 @@ async fn main() -> Result<()> {
 }
 
 async fn get_ip() -> Result<Response, AppError> {
-    let resp = reqwest::get("https://httpbin.org/ip")
-        .await?
-        .json::<HashMap<String, String>>()
-        .await?;
+    let res = reqwest::get("https://curlmyip.org").await?;
     Ok((
         StatusCode::OK,
         Json(Data {
-            msg: format!("[NEW]: your IP address is: {}", resp["origin"]),
+            msg: format!("[NEW]: your IP address is: {}", res.text().await?),
         }),
     )
         .into_response())
+}
+
+async fn get_users(State(state): State<Arc<AppState>>) -> Result<Response, AppError> {
+    let pool = &state.db;
+
+    let users = sqlx::query_as::<_, User>("select id, created_at, updated_at, name from users")
+        .fetch_all(pool)
+        .await?;
+
+    Ok((StatusCode::OK, Json(json!({"users": users }))).into_response())
+}
+
+async fn create_user(
+    State(state): State<Arc<AppState>>,
+    Json(user): Json<CreateUser>,
+) -> Result<Response, AppError> {
+    let pool = &state.db;
+    let id = sqlx::query_scalar::<_, Uuid>("insert into users (name) values ($1) returning id")
+        .bind(user.name)
+        .fetch_one(pool)
+        .await?;
+    Ok((StatusCode::CREATED, Json(json!({"id": id}))).into_response())
 }
