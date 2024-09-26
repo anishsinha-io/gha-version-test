@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.89"
+async-nats = "0.36.0"
 axum = "0.7.6"
 chrono = { version = "0.4.38", features = ["serde"] }
+futures = "0.3.30"
 rand = "0.8.5"
 reqwest = { version = "0.12.7", default-features = false, features = [
   "json",
